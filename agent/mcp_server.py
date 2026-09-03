@@ -1795,6 +1795,12 @@ def get_market_data(
     single shares). Each symbol's ``_provenance.volume_unit`` states the unit
     of the returned rows ("lots" / "shares"; null = source undeclared) — read
     it before interpreting or comparing volume values across symbols/sources.
+
+    Price caliber: which source served a symbol decides what its prices mean
+    (some adjust for splits and dividends, others serve raw quotes). Each
+    symbol's ``_provenance.adjustment`` states the caliber ("raw" / "split" /
+    "split_dividend" / "na" / "unknown") — read it before comparing price
+    levels across symbols.
     """
     registry = _get_registry()
     return registry.execute(
@@ -2169,7 +2175,7 @@ def get_options_chain(ticker: str, expiration: int | None = None) -> str:
 
 @mcp.tool
 def get_stock_profile(ticker: str, sections: _lenient_str_list_opt = None) -> str:
-    """Fetch a read-only company profile for a US or HK listing (Yahoo Finance).
+    """Fetch a read-only company profile for a US, HK, or UK (LSE .L) listing (Yahoo Finance).
 
     Returns valuation key statistics, analyst price targets and
     earnings/revenue estimates, institutional and insider ownership, and the
@@ -2177,7 +2183,8 @@ def get_stock_profile(ticker: str, sections: _lenient_str_list_opt = None) -> st
     context, not for OHLCV price bars (use get_market_data).
 
     Args:
-        ticker: US (bare or .US suffix) or HK (zero-padded .HK code) symbol.
+        ticker: US (bare or .US suffix), HK (zero-padded .HK code), or
+            UK (LSE .L, e.g. VOD.L) symbol.
         sections: Profile sections to return, any of: key_stats, financials,
             earnings_trend, institution_ownership, insider_holders,
             recommendation_trend. Defaults to all sections.
