@@ -28,21 +28,31 @@ vibe-trading 里港股有两种格式，**用途不同，绝不混用**：
 - **绝不能**把 `HK.01288` 当成行情代码传给 `get_market_data`（会导致 `_unresolved`）；
 - **绝不能**把 `01288.HK` 传给富途 `trading_quote`（返回空 quote）。
 
-### 2. 身份锁（identity gate）规避序列
+### 2. 身份锁（identity gate）规避序列 —— 正确顺序（实测有效）
 
-`identity_conflict` 的触发原因是：**在取价格工具执行前，身份锁必须是 `locked` 状态**，而这个锁只能由"解析类工具"锁定。`search_symbol` / `get_stock_profile` 依赖东财/Yahoo，可能失败（东财解析错、Yahoo 403/429）。
+`identity_required` / `identity_conflict` 的触发原因：**在取价格工具（`get_market_data` / `get_financial_statements` / `get_sector_info` / `trading_quote` / `trading_history`）执行前，身份锁必须是 `locked` 状态**。这个锁**只能由 `search_symbol` 锁定**，而且 lock 必须发生在取价工具之前、**同一批或前一批完成**。取价工具本身不能用来锁定身份（会报 `identity_required`）。
+
+**关键：`search_symbol` 不能带前导 0 的 `.HK`（如 `06693.HK`），也不能用裸数字（`06693` 会返回 `066938.TW` 错误候选）。要用能唯一锁定目标港股的查询：英文全名 或 去掉前导 0 的代码。**
+
+**已验证能锁定 `06693.HK` 的查询：**
+- `search_symbol("Chifeng Gold")` → 候选 `06693.HK`(market=hk) ✅
+- `search_symbol("6693.HK")` → 候选 `06693.HK`(market=hk) ✅
+- `search_symbol("06693.HK")` → count=0（Eastmoney 挂 + Yahoo 找不到）❌
+- `search_symbol("06693")` → 返回 `066938.TW`（台股，错误）❌
 
 **固定正确的调用序列（按此顺序，缺一不可）：**
 
-1. **先读富途持仓**：`trading_positions`（连接用当前默认 `futu-paper-sdk` 或 `futu-live-sdk-readonly`）。返回的持仓代码是 `HK.<code>`，记录下每个标的。
-2. **锁定身份 + 取行情**：用 `get_market_data`，**代码一律用 `.HK` 后缀格式**（如 `01288.HK`、`01919.HK`）。这一步同时锁定身份并拿到 OHLCV。
-3. **如需基本面**：优先 `get_financial_statements`（eastmoney）或 `trading_account`；`get_stock_profile` / `search_symbol` / `get_stock_news` 依赖 Yahoo/东财，**可能失败，失败时不要连续重试**，直接说明该工具当前不可用。
-4. **组合风险（可选）**：`portfolio_risk_xray` **必须传 `symbols` 参数**（列表，用 `.HK` 后缀），否则报 `symbols must be a non-empty list`。例：`portfolio_risk_xray(symbols=["01288.HK","01919.HK"])`。
+1. **先锁定身份**：用 `search_symbol(英文名或去前导0代码)` 锁定目标港股，记下返回的 `<code>.HK`（后缀格式）。示例：`search_symbol("Chifeng Gold")` → `06693.HK`。
+2. **后取行情**：用 `get_market_data`，代码用**刚锁定的 `.HK` 后缀格式**（`06693.HK`）。此时身份已锁，可正常执行。
+3. **再取财务/行业**：`get_financial_statements` / `get_sector_info` 同样用 `.HK` 后缀（身份已锁即可通过）。
+4. **富途持仓**：`trading_positions`（连接用 `futu-paper-sdk` 或 `futu-live-sdk-readonly`）；持仓返回 `HK.<code>`，只是读取展示，**不用来当行情代码**。
+5. **组合风险（可选）**：`portfolio_risk_xray` **必须传 `symbols` 参数**（列表，用 `.HK` 后缀），否则报 `symbols must be a non-empty list`。例：`portfolio_risk_xray(symbols=["06693.HK"])`。
 
 ### 3. 禁止事项
 
-- ❌ 不要用 `search_symbol` 反复尝试裸代码（`01288`）、中文名（"农业银行"）——东财/Yahoo 可能失败，且裸代码锁不住身份。
-- ❌ 不要用富途前缀 `HK.01288` 去调行情链 `get_market_data`。
+- ❌ 不要用 `search_symbol("06693.HK")` / `search_symbol("01288")` / 中文名 / 带前导 0 的代码——锁不住身份。
+- ❌ **绝不要**用 `get_market_data` 去"锁定身份"——它只能读，不能锁；身份必须先用 `search_symbol` 锁。
+- ❌ 不要用富途前缀 `HK.xxxxx` 去调行情链 `get_market_data`（会 `_unresolved`）。
 - ❌ 不要在同一批次把 `.HK` 后缀和 `HK.` 前缀混用，会触发 `identity_conflict`。
 - ❌ `portfolio_risk_xray` 不要空参调用。
 
