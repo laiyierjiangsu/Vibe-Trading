@@ -159,6 +159,7 @@ _GENERIC_PRICE_FIELD_ALIASES = {
 _CANONICAL_SYMBOL_RE = re.compile(
     r"(?<![A-Za-z0-9_])(?:"
     r"\d{3,6}\.(?:SH|SZ|BJ|SS|HK|KS|KQ)|"
+    r"HK\.\d{3,6}|"          # <-- added: HK-prefixed code (Futu connector format, e.g. HK.06693)
     r"[A-Z][A-Z0-9&.-]{0,19}\.(?:US|NS|BO|FX|TO|V)|"
     r"[A-Z0-9]{2,15}(?:-|/)(?:USDT|USDC|USD|BTC|ETH)|"
     r"\^[A-Z0-9&.\-]{1,20}|"
@@ -593,6 +594,12 @@ def _normalize_symbol(value: Any) -> str:
     base, dot, suffix = symbol.rpartition(".")
     if not dot:
         return symbol
+    # HK-prefixed listing (Futu connector format, e.g. HK.06693 / HK.01288):
+    # rewrite to the canonical .HK suffix so identity matching agrees with the
+    # market-data chain (06693.HK) used by get_market_data.
+    if base == "HK" and suffix.replace(".", "", 1).isdigit():
+        digits = suffix.split(".")[0]
+        return f"{digits.zfill(5)}.HK"
     if suffix == "SS":
         suffix = "SH"
     if suffix == "HK" and base.isdigit():
